@@ -13,11 +13,20 @@ const DataUpload = ({ onDataUploaded }: DataUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
+  const [processingProgress, setProcessingProgress] = useState<string>("");
   const { toast } = useToast();
 
-  const parseCSVData = (csvText: string): ClimateData[] => {
+  const parseCSVData = async (csvText: string, setProgress?: (progress: string) => void): Promise<ClimateData[]> => {
+    console.log('Starting CSV parse, text length:', csvText.length);
     const lines = csvText.trim().split('\n');
+    console.log('Total lines to process:', lines.length);
+    
+    if (lines.length > 50000) {
+      console.warn('Large dataset detected:', lines.length, 'lines');
+    }
+    
     const headers = lines[0].split(/[,\t]/);
+    console.log('Headers found:', headers);
     
     // Validate headers
     const expectedHeaders = ['Lat', 'Lon', 'Year', 'Month', 'Date', 'WS10M', 'WD10M', 'QV2M', 'Prec'];
@@ -30,38 +39,82 @@ const DataUpload = ({ onDataUploaded }: DataUploadProps) => {
     }
 
     const data: ClimateData[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(/[,\t]/);
-      if (values.length >= 9) {
-        data.push({
-          lat: parseFloat(values[0]),
-          lon: parseFloat(values[1]),
-          year: parseInt(values[2]),
-          month: parseInt(values[3]),
-          date: parseInt(values[4]),
-          ws10m: parseFloat(values[5]),
-          wd10m: parseFloat(values[6]),
-          qv2m: parseFloat(values[7]),
-          prec: parseFloat(values[8])
-        });
+    const chunkSize = 1000; // Process 1000 rows at a time
+    
+    // Process in chunks to avoid blocking the UI
+    for (let startIndex = 1; startIndex < lines.length; startIndex += chunkSize) {
+      const endIndex = Math.min(startIndex + chunkSize, lines.length);
+      const progress = Math.round((startIndex / lines.length) * 100);
+      console.log(`Processing chunk ${startIndex} to ${endIndex} (${progress}%)`);
+      
+      // Update progress for large datasets
+      if (lines.length > 5000 && setProgress) {
+        setProgress(`Processing data... ${progress}% complete`);
+      }
+      
+      // Process chunk
+      for (let i = startIndex; i < endIndex; i++) {
+        const line = lines[i].trim();
+        if (!line) continue; // Skip empty lines
+        
+        const values = line.split(/[,\t]/);
+        if (values.length >= 9) {
+          const parsedRow = {
+            lat: parseFloat(values[0]),
+            lon: parseFloat(values[1]),
+            year: parseInt(values[2]),
+            month: parseInt(values[3]),
+            date: parseInt(values[4]),
+            ws10m: parseFloat(values[5]),
+            wd10m: parseFloat(values[6]),
+            qv2m: parseFloat(values[7]),
+            prec: parseFloat(values[8])
+          };
+          
+          // Validate the parsed data
+          if (!isNaN(parsedRow.lat) && !isNaN(parsedRow.lon) && 
+              !isNaN(parsedRow.year) && !isNaN(parsedRow.prec)) {
+            data.push(parsedRow);
+          }
+        }
+      }
+      
+      // Yield control back to browser every chunk
+      if (startIndex + chunkSize < lines.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
     
+    console.log('Parsing complete. Valid rows:', data.length);
     return data;
   };
 
   const handleFileUpload = useCallback(async (file: File) => {
+    console.log('Starting file upload, size:', file.size, 'bytes');
     setIsProcessing(true);
     setUploadStatus("idle");
+    setProcessingProgress(""); // Clear any previous progress
 
     try {
+      // Check file size (warn if over 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        console.warn('Large file detected:', file.size, 'bytes');
+        toast({
+          title: "Large file detected",
+          description: "This may take a while to process...",
+        });
+      }
+
       const text = await file.text();
-      const data = parseCSVData(text);
+      console.log('File read complete, starting parse...');
+      
+      const data = await parseCSVData(text, setProcessingProgress);
       
       if (data.length === 0) {
         throw new Error("No valid data rows found in the file");
       }
 
+      console.log('Upload successful, data points:', data.length);
       setUploadStatus("success");
       onDataUploaded(data);
       
@@ -70,6 +123,7 @@ const DataUpload = ({ onDataUploaded }: DataUploadProps) => {
         description: `Processed ${data.length} data points`,
       });
     } catch (error) {
+      console.error('Upload failed:', error);
       setUploadStatus("error");
       toast({
         title: "Upload failed",
@@ -78,6 +132,7 @@ const DataUpload = ({ onDataUploaded }: DataUploadProps) => {
       });
     } finally {
       setIsProcessing(false);
+      setProcessingProgress(""); // Clear progress when done
     }
   }, [onDataUploaded, toast]);
 
@@ -127,7 +182,14 @@ const DataUpload = ({ onDataUploaded }: DataUploadProps) => {
           {isProcessing ? (
             <>
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4" />
-              <p className="text-muted-foreground">Processing your data...</p>
+              <p className="text-muted-foreground">
+                {processingProgress || "Processing your data..."}
+              </p>
+              {processingProgress && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Large dataset detected - please wait
+                </p>
+              )}
             </>
           ) : uploadStatus === 'success' ? (
             <>
