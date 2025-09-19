@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ClimateData } from "@/pages/Index";
@@ -10,38 +10,101 @@ interface DataVisualizationProps {
 
 const DataVisualization = ({ data }: DataVisualizationProps) => {
   const stats = useMemo(() => {
-    if (data.length === 0) return null;
-
-    const totalPoints = data.length;
-    const uniqueLocations = new Set(data.map(d => `${d.lat},${d.lon}`)).size;
-    const dateRange = {
-      start: Math.min(...data.map(d => d.year)),
-      end: Math.max(...data.map(d => d.year))
-    };
+    console.log('DataVisualization stats useMemo running, data length:', data.length);
     
-    const avgPrecipitation = data.reduce((sum, d) => sum + d.prec, 0) / totalPoints;
-    const avgWindSpeed = data.reduce((sum, d) => sum + d.ws10m, 0) / totalPoints;
-    const avgHumidity = data.reduce((sum, d) => sum + d.qv2m, 0) / totalPoints;
+    if (!data || data.length === 0) {
+      console.log('No data available for stats calculation');
+      return null;
+    }
 
-    return {
-      totalPoints,
-      uniqueLocations,
-      dateRange,
-      avgPrecipitation,
-      avgWindSpeed,
-      avgHumidity
-    };
+    try {
+      const totalPoints = data.length;
+      
+      // Safely get unique locations
+      const uniqueLocations = new Set(
+        data
+          .filter(d => d && typeof d.lat === 'number' && typeof d.lon === 'number')
+          .map(d => `${d.lat},${d.lon}`)
+      ).size;
+      
+      // Safely get years for date range
+      const validYears = data
+        .filter(d => d && typeof d.year === 'number' && !isNaN(d.year))
+        .map(d => d.year);
+      
+      const dateRange = validYears.length > 0 ? {
+        start: Math.min(...validYears),
+        end: Math.max(...validYears)
+      } : { start: 0, end: 0 };
+      
+      // Safely calculate averages
+      const validPrecipitation = data.filter(d => d && typeof d.prec === 'number' && !isNaN(d.prec));
+      const validWindSpeed = data.filter(d => d && typeof d.ws10m === 'number' && !isNaN(d.ws10m));
+      const validHumidity = data.filter(d => d && typeof d.qv2m === 'number' && !isNaN(d.qv2m));
+      
+      const avgPrecipitation = validPrecipitation.length > 0 
+        ? validPrecipitation.reduce((sum, d) => sum + d.prec, 0) / validPrecipitation.length 
+        : 0;
+      
+      const avgWindSpeed = validWindSpeed.length > 0
+        ? validWindSpeed.reduce((sum, d) => sum + d.ws10m, 0) / validWindSpeed.length
+        : 0;
+      
+      const avgHumidity = validHumidity.length > 0
+        ? validHumidity.reduce((sum, d) => sum + d.qv2m, 0) / validHumidity.length
+        : 0;
+
+      const result = {
+        totalPoints,
+        uniqueLocations,
+        dateRange,
+        avgPrecipitation,
+        avgWindSpeed,
+        avgHumidity
+      };
+      
+      console.log('Stats calculated successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('Error calculating stats:', error);
+      return null;
+    }
   }, [data]);
 
   const geographicBounds = useMemo(() => {
-    if (data.length === 0) return null;
+    console.log('DataVisualization geographicBounds useMemo running');
     
-    return {
-      minLat: Math.min(...data.map(d => d.lat)),
-      maxLat: Math.max(...data.map(d => d.lat)),
-      minLon: Math.min(...data.map(d => d.lon)),
-      maxLon: Math.max(...data.map(d => d.lon))
-    };
+    if (!data || data.length === 0) {
+      console.log('No data available for geographic bounds calculation');
+      return null;
+    }
+
+    try {
+      // Filter for valid latitude and longitude values
+      const validCoordinates = data.filter(d => 
+        d && 
+        typeof d.lat === 'number' && !isNaN(d.lat) && 
+        typeof d.lon === 'number' && !isNaN(d.lon)
+      );
+
+      if (validCoordinates.length === 0) {
+        console.log('No valid coordinates found');
+        return null;
+      }
+
+      const result = {
+        minLat: Math.min(...validCoordinates.map(d => d.lat)),
+        maxLat: Math.max(...validCoordinates.map(d => d.lat)),
+        minLon: Math.min(...validCoordinates.map(d => d.lon)),
+        maxLon: Math.max(...validCoordinates.map(d => d.lon))
+      };
+      
+      console.log('Geographic bounds calculated successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('Error calculating geographic bounds:', error);
+      return null;
+    }
   }, [data]);
 
   if (data.length === 0) {

@@ -27,6 +27,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("upload");
 
   const handleDataUpload = (uploadedData: ClimateData[]) => {
+    console.log('Data uploaded:', uploadedData.length, 'records');
     setData(uploadedData);
     setActiveTab("visualize");
   };
